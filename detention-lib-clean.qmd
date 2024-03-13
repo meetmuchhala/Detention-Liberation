@@ -19,79 +19,108 @@ library(tmap)
 
 ```{r}
 
-## USA CDC dataset for EJ indexes, Health and others
-#tract_level_index <- read_sf(here("data", "usa.gdb")) 
+## Loading the EJScren raw data
+ejscreen_data_raw <- read_sf(here("data", "ejscreen_2023.gdb")) %>% 
+  clean_names()
 
-## Selecting specific columns 
+## Selecting relevant percentiles variables for pollution and demographics as found in EJScreen Data Dictionary
 
+ejscreen_sf <- ejscreen_data_raw %>% 
+  clean_names() %>% 
+  select(id, p_pnpl, p_prmp, p_ptsdf, p_ozone, p_dslpm, p_cancer, p_resp, p_rsei_air, exceed_count_80, arealand, areawater, shape_length, shape_area, Shape) %>% 
+  rename(geoid = id)
 
-#tract_indexes_select <- tract_level_index %>% 
-  #select(GEOID, COUNTY, StateAbbr, RPL_EJI, EPL_NPL, EPL_MINRTY)
- 
-## ICE facilities data 
-
-ejscreen_data_raw <- read_sf(here("data", "ejscreen.gdb"))
-ice_facilities_raw_df <- read_csv(here('data/icefacilities.csv')) 
+ice_facilities_raw_df <- read_csv(here('data/icefacilities.csv'))  %>% 
+  clean_names()
 
 ## Filter the ones without GEOID, need to manually work on it
 ice_facilities_df <- ice_facilities_raw_df %>% 
-    filter(!is.na(GEOID)) %>% 
-  select(NAME, `TYPE DETAILED`,CATEGORY, `FY24 ADP`, GEOID,LONGITUDE, LATITUDE)
+    filter(!is.na(geoid)) %>% 
+  select(name, type_detailed, category, fy24_adp, geoid, longitude, latitude)
 
 ## Merging the data of CDC and ICE facilities with common GEOID, lost of lot of data, need manual work.
-merged_data <- tract_indexes_select %>%
-  inner_join(ice_facilities_df, by = "GEOID") %>% 
+detention_df <- ejscreen_sf %>%
+  inner_join(ice_facilities_df, by = "geoid") %>% 
   drop_na()
 
-write_csv(merged_data, "iceavailable.csv")
+
+
+summary(detention_df)
+names(detention_df)
+
 
 
 ```
 
 ```{r}
-
-st_crs(merged_data) <- st_crs("+proj=longlat +datum=WGS84")
-merged_sf <- st_as_sf(merged_data, coords = c("LONGITUDE", "LATITUDE")) %>% 
- select(-GEOID)
+st_crs(detention_df) <- st_crs("+proj=longlat +datum=WGS84")
+detention_sf <- st_as_sf(detention_df
+                         , coords = c("LONGITUDE", "LATITUDE")) %>% 
+ select(-geoid)
 
 library(leaflet)
+library(leaflet.extras)
 
-color_palette <- c("#EFF3FF", "#BDD7E7", "#6BAED6", "#2171B5")
-
-
-# Create a leaflet map with census tracts colored by RPL_EJI
-map <- leaflet(tract_level_index) %>%
-  addPolygons(fillColor = ~colorQuantile(color_palette, RPL_EJI)(RPL_EJI),
+# Create leaflet map
+leaflet() %>%
+  addPolygons(data = ejscreen_sf,
+              fillColor = ~colorQuantile("viridis", p_cancer)(p_cancer),
               fillOpacity = 0.7,
               color = "#BDBDBD",
               weight = 1,
-              label = ~paste("Environmental Justice Index:", RPL_EJI)) %>%
+              label = ~paste("Percentile of Cancer:", p_cancer)) %>%
+  addLegend("bottomleft", 
+            pal = colorQuantile("viridis", p_cancer),
+            values = ~p_cancer,
+            title = "Percentile of Cancer",
+            opacity = 0.7) %>%
+  setView(lng = -98.58333, lat = 39.83333, zoom = 4) 
+
+```
+
+
+```{r}
+
+
+st_crs(detention_df) <- st_crs("+proj=longlat +datum=WGS84")
+detention_sf <- st_as_sf(detention_df, coords = c("LONGITUDE", "LATITUDE")) %>% 
+  select(-geoid)
+
+color_palette <- c("#EFF3FF", "#BDD7E7", "#6BAED6", "#2171B5")
+
+# Create a leaflet map with census tracts colored by p_cancer
+map <- leaflet(ejscreen_sf) %>%
+  addPolygons(fillColor = ~colorQuantile(color_palette, p_cancer)(p_cancer),
+              fillOpacity = 0.7,
+              color = "#BDBDBD",
+              weight = 1,
+              label = ~paste("Environmental Justice Index:", p_cancer)) %>%
   addLegend("bottomleft", 
             colors = color_palette,
             labels = c("Low", "", "", "High"),
-            title = "RPL_EJI",
+            title = "p_cancer",
             opacity = 0.7) 
 
 map_detention_centers <- map %>%
-  addCircleMarkers(data = merged_sf,
+  addCircleMarkers(data = detention_sf,
                    lng = ~LONGITUDE,
                    lat = ~LATITUDE,
                    radius = 4,
                    color = "black",
                    fillColor = "white",
                    fillOpacity = 1,
-                   popup = ~as.character(NAME))
+                   popup = ~as.character(name))
 
 map_combined <- map_detention_centers %>%
   addLayersControl(
-    baseGroups = c("Census Tracts (RPL_EJI)", "Detention Centers"),
+    baseGroups = c("Census Tracts (p_cancer)", "Detention Centers"),
     options = layersControlOptions(collapsed = FALSE)
   )
-  
+
 map_combined
 
-```
 
+```
 
 ```{r}
  
